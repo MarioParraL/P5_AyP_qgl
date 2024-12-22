@@ -1,6 +1,7 @@
 import { Collection, ObjectId } from "mongodb";
 import { CommentModel, PostModel, User, UserModel } from "./types.ts";
 import { GraphQLError } from "graphql";
+import * as bcrypt from "bcrypt";
 
 type Context = {
   UsersCollection: Collection<UserModel>;
@@ -39,6 +40,20 @@ type CreateCommentInput = {
   text: string;
   author: string;
   post: string;
+};
+
+type UpdateUserInput = {
+  name?: string;
+  password?: string;
+  email?: string;
+};
+
+type UpdatePostInput = {
+  content?: string;
+};
+
+type UpdateCommentInput = {
+  text?: string;
 };
 
 export const resolvers = {
@@ -125,28 +140,58 @@ export const resolvers = {
       ctx: Context,
     ): Promise<UserModel> => {
       const { email, name, password, posts, comments, likedPosts } = args;
+
+
       const existsEmail = await ctx.UsersCollection.findOne({ email });
-      if (existsEmail) throw new GraphQLError("Email Exists");
+      if (existsEmail) throw new GraphQLError("Email already exists");
+
+      const hashedPassword = await bcrypt.hash(password);
+
 
       const { insertedId } = await ctx.UsersCollection.insertOne({
         email,
         name,
-        password,
-        posts: posts.map((f) => new ObjectId(f)),
-        comments: comments.map((f) => new ObjectId(f)),
-        likedPosts: likedPosts.map((f) => new ObjectId(f)),
+        password: hashedPassword,
+        posts: posts.map((p) => new ObjectId(p)),
+        comments: comments.map((c) => new ObjectId(c)),
+        likedPosts: likedPosts.map((l) => new ObjectId(l)),
       });
 
       return {
         _id: insertedId,
         email,
         name,
-        password,
+        password: hashedPassword,
         posts: posts.map((p) => new ObjectId(p)),
         comments: comments.map((c) => new ObjectId(c)),
         likedPosts: likedPosts.map((l) => new ObjectId(l)),
       };
     },
+
+    updateUser: async (
+      _: unknown,
+      args: { id: string; input: UpdateUserInput },
+      ctx: Context,
+    ): Promise<UserModel> => {
+      const { id, input } = args;
+
+      if (input.password) {
+        input.password = await bcrypt.hash(input.password);
+      }
+
+      const { value } = await ctx.UsersCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: input },
+        { returnDocument: "after" },
+      );
+
+      if (!value) {
+        throw new GraphQLError(`User with ID ${id} not found`);
+      }
+
+      return value;
+    },
+ 
 
     deleteUser: async (
       _: unknown,
@@ -182,6 +227,26 @@ export const resolvers = {
       };
     },
 
+    updatePost: async (
+      _: unknown,
+      args: { id: string; input: UpdatePostInput },
+      ctx: Context,
+    ): Promise<PostModel> => {
+      const { id, input } = args;
+
+      const { value } = await ctx.PostCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: input },
+        { returnDocument: "after" },
+      );
+
+      if (!value) {
+        throw new GraphQLError(`Post with ID ${id} not found`);
+      }
+
+      return value;
+    },
+
     deletePost: async (
       _: unknown,
       args: DeleteMutationArgs,
@@ -214,6 +279,27 @@ export const resolvers = {
       };
     },
 
+    updateComment: async (
+      _: unknown,
+      args: { id: string; input: UpdateCommentInput },
+      ctx: Context,
+    ): Promise<CommentModel> => {
+      const { id, input } = args;
+
+      const { value } = await ctx.CommentCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: input },
+        { returnDocument: "after" },
+      );
+
+      if (!value) {
+        throw new GraphQLError(`Comment with ID ${id} not found`);
+      }
+
+      return value;
+    },
+ 
+
     deleteComment: async (
       _: unknown,
       args: DeleteMutationArgs,
@@ -225,6 +311,7 @@ export const resolvers = {
       return deletedCount === 1;
     },
   },
+
 
   User: {
     id: (parent: UserModel, _: unknown, ctx: Context) => {
