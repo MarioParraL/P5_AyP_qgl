@@ -1,1 +1,1 @@
-# P5_AyP_qgl
+# P5_AyP_GraphQL
